@@ -5,23 +5,32 @@ import (
 	"sync"
 )
 
+// Eventify is a struct that represents an event emitter.
 type Eventify struct {
 	listeners sync.Map
 	mutex     sync.RWMutex
 	log       Log
 }
 
+// New creates a new Eventify instance with the default logger.
+func New() *Eventify {
+	return NewEventify()
+}
+
+// NewEventifyWithLog creates and returns a new Eventify instance with the provided logger.
+func NewEventifyWithLog(log Log) *Eventify {
+	return NewEventify(WithLogger(log))
+}
+
 // NewEventify creates and returns a new Eventify instance with the provided logger.
 // The logger is used for debugging and error reporting throughout the Eventify instance's lifecycle.
 // If no logger is needed, you can pass nil, but it's recommended to provide a logger for better observability.
-func NewEventify(log Log) *Eventify {
-	if log == nil {
-		log = &NoLog{}
-	}
+func NewEventify(opts ...OptionFunc) *Eventify {
+	o := NewOption(opts...)
 	ev := &Eventify{
 		listeners: sync.Map{},
 		mutex:     sync.RWMutex{},
-		log:       log,
+		log:       o.log,
 	}
 	return ev
 }
@@ -120,13 +129,13 @@ func (e *Eventify) _Trigger(event Event, listener Listener, async bool) {
 	if async {
 		go func() {
 			if err := listener.Handle(event); err != nil && hasErrorHandler {
-				errHandler.ErrorHandler(event, err)
+				go errHandler.ErrorHandler(event, err)
 			}
 		}()
 		return
 	}
 	if err := listener.Handle(event); err != nil && hasErrorHandler {
-		go errHandler.ErrorHandler(event, err)
+		errHandler.ErrorHandler(event, err)
 	}
 }
 

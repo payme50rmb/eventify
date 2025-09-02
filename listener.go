@@ -1,20 +1,17 @@
 package eventify
 
-import (
-	"encoding/json"
-	"reflect"
-)
-
 // Namable is an interface that can be used to name a listener
 // Only listeners that implement this interface will be unregistered
 type Namable interface {
 	Name() string
 }
 
+// Listener is an interface that represents an event listener.
 type Listener interface {
 	Handle(event Event) error
 }
 
+// NewListener creates a new listener with the specified handle function.
 func NewListener(handle func(event Event) error) Listener {
 	if handle == nil {
 		handle = func(Event) error { return nil }
@@ -32,12 +29,7 @@ func (l *listener) Handle(event Event) error {
 	return l.handle(event)
 }
 
-func (l *listener) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"handle": reflect.TypeOf(l.handle).String(),
-	})
-}
-
+// NewNamedListener creates a new named listener with the specified name and handle function.
 func NewNamedListener(name string, handle func(event Event) error) Listener {
 	if handle == nil {
 		handle = func(Event) error { return nil }
@@ -59,11 +51,4 @@ func (l *namedListener) Name() string {
 
 func (l *namedListener) Handle(event Event) error {
 	return l.handle(event)
-}
-
-func (l *namedListener) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"name":   l.name,
-		"handle": reflect.TypeOf(l.handle).String(),
-	})
 }

@@ -2,10 +2,12 @@ package eventify
 
 import "strings"
 
+// Matcher is a struct that represents a string matcher.
 type Matcher struct {
 	s string
 }
 
+// NewMatcher creates a new matcher with the specified string.
 func NewMatcher(s string) *Matcher {
 	return &Matcher{
 		s: s,
