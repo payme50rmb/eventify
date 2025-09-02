@@ -171,7 +171,328 @@ func (l *MyListener) Handle(event eventify.Event) error {
 
 ## Examples
 
-### Registering and Unregistering Listeners
+### 1. Basic Event Handling
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/payme50rmb/eventify"
+)
+
+func main() {
+	ev := eventify.NewEventify(nil)
+
+	// Register a simple event listener
+	ev.Register("user.created", eventify.NewListener(func(event eventify.Event) error {
+		fmt.Printf("New user created: %s\n", string(event.Payload()))
+		return nil
+	}))
+
+	// Emit an event
+	ev.Emit("user.created", []byte("john@example.com"))
+}
+```
+
+### 2. Error Handling
+
+```go
+package main
+
+import (
+	"errors"
+	"fmt"
+	"log"
+
+	"github.com/payme50rmb/eventify"
+)
+
+type PaymentEvent struct {
+	Amount int
+}
+
+func (e *PaymentEvent) Type() string    { return "payment.processed" }
+func (e *PaymentEvent) Payload() []byte { return []byte(fmt.Sprintf(`{"amount":%d}`, e.Amount)) }
+func (e *PaymentEvent) ErrorHandler(_ eventify.Event, err error) {
+	log.Printf("Error processing payment: %v", err)
+}
+
+func main() {
+	ev := eventify.NewEventify(nil)
+
+	ev.Register("payment.processed", eventify.NewListener(func(event eventify.Event) error {
+		amount := 100 // Extract from event.Payload() in real code
+		if amount > 90 {
+			return errors.New("payment amount too high")
+		}
+		return nil
+	}))
+
+	// This will trigger the error handler
+	ev._Emit(&PaymentEvent{Amount: 100})
+}
+```
+
+### 3. Middleware Pattern
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/payme50rmb/eventify"
+)
+
+func loggingMiddleware(next eventify.Listener) eventify.Listener {
+	return eventify.NewListener(func(event eventify.Event) error {
+		start := time.Now()
+		defer func() {
+			log.Printf("Event %s processed in %v", event.Type(), time.Since(start))
+		}()
+		return next.Handle(event)
+	})
+}
+
+func main() {
+	ev := eventify.NewEventify(nil)
+
+	eventHandler := eventify.NewListener(func(event eventify.Event) error {
+		fmt.Printf("Processing event: %s\n", event.Type())
+		time.Sleep(100 * time.Millisecond) // Simulate work
+		return nil
+	})
+
+	// Wrap the handler with middleware
+	ev.Register("order.placed", loggingMiddleware(eventHandler))
+
+	ev.Emit("order.placed", []byte("order data"))
+}
+```
+
+### 4. Request-Reply Pattern
+
+```go
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/payme50rmb/eventify"
+)
+
+type Request struct {
+	ID     string
+	Method string
+	Data   interface{}
+}
+
+type Response struct {
+	RequestID string
+	Result    interface{}
+	Error     string
+}
+
+func main() {
+	ev := eventify.NewEventify(nil)
+
+	// Request handler
+	ev.Register("api.getUser", eventify.NewListener(func(event eventify.Event) error {
+		var req Request
+		if err := json.Unmarshal(event.Payload(), &req); err != nil {
+			return err
+		}
+
+		// Process request and prepare response
+		response := Response{
+			RequestID: req.ID,
+			Result:    map[string]string{"id": "123", "name": "John Doe"},
+		}
+
+		// Send response back
+		respData, _ := json.Marshal(response)
+		ev.Emit("api.response."+req.ID, respData)
+		return nil
+	}))
+
+	// Make a request
+	reqID := "req_123"
+	req := Request{
+		ID:     reqID,
+		Method: "getUser",
+		Data:   map[string]string{"userID": "123"},
+	}
+	reqData, _ := json.Marshal(req)
+
+	// Set up response handler
+	respCh := make(chan []byte, 1)
+	ev.Register("api.response."+reqID, eventify.NewListener(func(event eventify.Event) error {
+		respCh <- event.Payload()
+		return nil
+	}))
+
+	// Send request
+	ev.Emit("api.getUser", reqData)
+
+	// Wait for response
+	respData := <-respCh
+	var resp Response
+	json.Unmarshal(respData, &resp)
+	fmt.Printf("Got response: %+v\n", resp)
+}
+```
+
+### 5. Event Batching
+
+```go
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/payme50rmb/eventify"
+)
+
+type BatchProcessor struct {
+	ev      *eventify.Eventify
+	buffer  []eventify.Event
+	mu      sync.Mutex
+	ticker  *time.Ticker
+	maxSize int
+}
+
+func NewBatchProcessor(ev *eventify.Eventify, interval time.Duration, maxSize int) *BatchProcessor {
+	bp := &BatchProcessor{
+		ev:      ev,
+		buffer:  make([]eventify.Event, 0, maxSize),
+		ticker:  time.NewTicker(interval),
+		maxSize: maxSize,
+	}
+	go bp.start()
+	return bp
+}
+
+func (bp *BatchProcessor) start() {
+	for range bp.ticker.C {
+		bp.processBatch()
+	}
+}
+
+func (bp *BatchProcessor) processBatch() {
+	bp.mu.Lock()
+	if len(bp.buffer) == 0 {
+		bp.mu.Unlock()
+		return
+	}
+
+	batch := make([]eventify.Event, len(bp.buffer))
+	copy(batch, bp.buffer)
+	bp.buffer = bp.buffer[:0]
+	bp.mu.Unlock()
+
+	// Process the batch
+	fmt.Printf("Processing batch of %d events\n", len(batch))
+	for _, event := range batch {
+		fmt.Printf(" - %s: %s\n", event.Type(), string(event.Payload()))
+	}
+}
+
+func (bp *BatchProcessor) AddEvent(event eventify.Event) {
+	bp.mu.Lock()
+	defer bp.mu.Unlock()
+
+	bp.buffer = append(bp.buffer, event)
+	if len(bp.buffer) >= bp.maxSize {
+		bp.processBatch()
+	}
+}
+
+func main() {
+	ev := eventify.NewEventify(nil)
+	bp := NewBatchProcessor(ev, 5*time.Second, 10)
+
+	// Register event handler that adds to batch
+	ev.Register("log.event", eventify.NewListener(func(event eventify.Event) error {
+		bp.AddEvent(event)
+		return nil
+	}))
+
+	// Generate some events
+	for i := 0; i < 15; i++ {
+		ev.Emit("log.event", []byte(fmt.Sprintf("Event %d", i)))
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Wait for any remaining events to be processed
+	time.Sleep(6 * time.Second)
+}
+```
+
+### 6. Graceful Shutdown
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/payme50rmb/eventify"
+)
+
+func main() {
+	ev := eventify.NewEventify(nil)
+
+	// Simulate a long-running event processor
+	ev.Register("data.process", eventify.NewListener(func(event eventify.Event) error {
+		fmt.Printf("Processing: %s\n", string(event.Payload()))
+		time.Sleep(1 * time.Second) // Simulate work
+		return nil
+	}))
+
+	// Handle graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Start emitting events in the background
+	go func() {
+		for i := 0; ; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				ev.Emit("data.process", []byte(fmt.Sprintf("Data %d", i)))
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
+	}()
+
+	// Wait for interrupt signal
+	<-ctx.Done()
+	fmt.Println("\nShutting down gracefully...")
+
+	// Give some time for in-flight events to complete
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		fmt.Println("Shutdown complete")
+	}
+}
+```
+
+### 7. Registering and Unregistering Listeners
 
 ```go
 package main
