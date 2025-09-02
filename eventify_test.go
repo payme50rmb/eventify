@@ -47,7 +47,7 @@ func TestEventify_RegisterAndEmit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := NewEventify(nil)
+			e := New()
 			_, check := tt.setup(e)
 
 			e._Emit(NewEvent(tt.eventType, nil))
@@ -58,7 +58,7 @@ func TestEventify_RegisterAndEmit(t *testing.T) {
 }
 
 func TestEventify_ConcurrentAccess(t *testing.T) {
-	e := NewEventify(nil)
+	e := New()
 	var wg sync.WaitGroup
 	const numListeners = 100
 	const numEmitters = 10
@@ -163,7 +163,7 @@ func TestEventify_Unregister(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := NewEventify(nil)
+			e := New()
 			eventType, toRemove := tt.setup(e)
 
 			e.Unregister(eventType, toRemove...)
@@ -175,7 +175,7 @@ func TestEventify_Unregister(t *testing.T) {
 
 func TestEventify_EmitBy(t *testing.T) {
 	t.Run("emits event with payload", func(t *testing.T) {
-		e := NewEventify(nil)
+		e := New()
 		var receivedPayload []byte
 
 		e.Register("test.event", NewListener(func(event Event) error {
@@ -190,7 +190,7 @@ func TestEventify_EmitBy(t *testing.T) {
 	})
 
 	t.Run("handles nil payload", func(t *testing.T) {
-		e := NewEventify(nil)
+		e := New()
 		var called bool
 
 		e.Register("test.event", NewListener(func(event Event) error {
@@ -207,7 +207,7 @@ func TestEventify_EmitBy(t *testing.T) {
 
 func TestEventify_ErrorHandling(t *testing.T) {
 	t.Run("error from listener is handled", func(t *testing.T) {
-		e := NewEventify(nil)
+		e := New()
 		errChan := make(chan error, 1)
 
 		e.Register("error.event", NewListener(func(event Event) error {
