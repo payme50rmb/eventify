@@ -39,26 +39,26 @@ func NewEventify(opts ...OptionFunc) *Eventify {
 // The listener will be called whenever an event of the matching type is emitted.
 // Multiple listeners can be registered for the same event type.
 // This method is thread-safe.
-func (e *Eventify) Register(eventType string, listener Listener) {
+func (e *Eventify) Register(eventTypePattern string, listener Listener) {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
-	listeners, _ := e.listeners.LoadOrStore(eventType, []Listener{})
-	e.listeners.Store(eventType, append(listeners.([]Listener), listener))
-	e.log.Debug("eventify register", "event_type", eventType, "listener", listener)
+	listeners, _ := e.listeners.LoadOrStore(eventTypePattern, []Listener{})
+	e.listeners.Store(eventTypePattern, append(listeners.([]Listener), listener))
+	e.log.Debug("eventify register", "event_type_pattern", eventTypePattern, "listener", listener)
 }
 
 // Unregister removes event listeners for the specified event type.
 // If no listeners are provided, all listeners for the event type are removed.
 // If specific listeners are provided, only those listeners will be removed.
 // This method is thread-safe.
-func (e *Eventify) Unregister(eventType string, listeners ...Listener) {
+func (e *Eventify) Unregister(eventTypePattern string, listeners ...Listener) {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 	if len(listeners) == 0 {
-		e.listeners.Delete(eventType)
+		e.listeners.Delete(eventTypePattern)
 		return
 	}
-	e.log.Debug("eventify unregister", "event_type", eventType, "listeners", listeners)
+	e.log.Debug("eventify unregister", "event_type_pattern", eventTypePattern, "listeners", listeners)
 
 	namedListeners := []Namable{}
 	for _, listener := range listeners {
@@ -69,7 +69,7 @@ func (e *Eventify) Unregister(eventType string, listeners ...Listener) {
 	if len(namedListeners) == 0 {
 		return
 	}
-	ls, ok := e.listeners.Load(eventType)
+	ls, ok := e.listeners.Load(eventTypePattern)
 	if !ok {
 		return
 	}
@@ -92,7 +92,7 @@ func (e *Eventify) Unregister(eventType string, listeners ...Listener) {
 			}
 		}
 	}
-	e.listeners.Store(eventType, newLs)
+	e.listeners.Store(eventTypePattern, newLs)
 }
 
 // Emit dispatches an event to all registered listeners for the event's type.
